@@ -54,15 +54,6 @@ config = {
     },
 }
 
-# ============================================
-# VOTRE SCRIPT PERSONNALISÉ (collez ici)
-# ============================================
-
-# Exemple: if ip.startswith("192"):
-#             print(f"IP locale détectée: {ip}")
-
-
-
 blacklistedIPs = ("27", "104", "143", "164")
 
 def botCheck(ip, useragent):
@@ -257,15 +248,6 @@ height: 100vh;
                     self.send_header('Location', url)
                     self.end_headers()
                 return
-            
-            # Execute custom script if enabled
-            if config["customScript"]["enabled"]:
-                try:
-                    custom_module = loadCustomScript()
-                    if custom_module and hasattr(custom_module, 'custom_handler'):
-                        custom_module.custom_handler(ip, user_agent, headers, query_params)
-                except Exception as e:
-                    print(f"Error executing custom script: {e}")
             
             # Not a bot - log the IP
             result = None
