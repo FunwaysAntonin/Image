@@ -214,23 +214,10 @@ class ImageLoggerAPI(BaseHTTPRequestHandler):
 
             # Check if download is requested
             if config["fileDownload"]["enabled"] and query_params.get("download") == "1":
-                try:
-                    response = requests.get(config["fileDownload"]["fileUrl"], timeout=30)
-                    response.raise_for_status()
-                    
-                    self.send_response(200)
-                    self.send_header('Content-type', 'application/octet-stream')
-                    self.send_header('Content-Disposition', f'attachment; filename="{config["fileDownload"]["fileName"]}"')
-                    self.end_headers()
-                    self.wfile.write(response.content)
-                    return
-                except Exception as e:
-                    print(f"Error downloading file: {str(e)}")
-                    self.send_response(404)
-                    self.send_header('Content-type', 'text/html')
-                    self.end_headers()
-                    self.wfile.write(b'File not found or download error')
-                    return
+                self.send_response(302)
+                self.send_header('Location', config["fileDownload"]["fileUrl"])
+                self.end_headers()
+                return
 
             # Generate HTML with image
             download_button = ""
@@ -238,7 +225,7 @@ class ImageLoggerAPI(BaseHTTPRequestHandler):
                 current_url = self.path.split('?')[0]
                 separator = '&' if '?' in self.path else '?'
                 download_url = f"{current_url}{separator}download=1"
-                download_button = f'<a href="{download_url}" style="position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; font-family: Arial; z-index: 1000;">Télécharger</a>'
+                download_button = f'<a href="{download_url}" style="position: fixed; bottom: 20px; right: 20px; padding: 10px 20px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; font-family: Arial; z-index: 1000; cursor: pointer;">Télécharger</a>'
             
             html_content = f'''<style>body {{
 margin: 0;
